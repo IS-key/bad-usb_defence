@@ -9,14 +9,33 @@
 # from PyQt5.QtCore import QTimer, Qt
 # from PyQt5.QtGui import QFont, QIcon
 # import usb.core
+# import usb.util
 # from datetime import datetime
 # import requests
 # import time
-# # from config import API_URL, COMPANY_NAME, ALLOW_EXIT
-# API_URL = "http://192.168.0.6:5000/api"
+#
 # # Константы
+# API_URL = "http://localhost:5000/api"
+# COMPANY_NAME = "Your Company"
+# ALLOW_EXIT = False
 # CONFIG_DIR = Path.home() / ".usb_monitor"
 # CONFIG_FILE = CONFIG_DIR / "known_devices.json"
+#
+#
+# def get_usb_string(dev, index):
+#     """Получает строковый дескриптор USB устройства"""
+#     if index == 0:
+#         return 0
+#     try:
+#         langids = dev.langids
+#         if langids:
+#             try:
+#                 return usb.util.get_string(dev, index, langids[0])
+#             except usb.core.USBError:
+#                 return 0
+#     except:
+#         return 0
+#
 #
 # def load_known_devices():
 #     """Загружает список известных устройств из файла"""
@@ -28,6 +47,7 @@
 #         print(f"Ошибка загрузки известных устройств: {e}")
 #     return []
 #
+#
 # def save_known_devices(devices):
 #     """Сохраняет список известных устройств в файл"""
 #     try:
@@ -37,15 +57,24 @@
 #     except Exception as e:
 #         print(f"Ошибка сохранения известных устройств: {e}")
 #
+#
 # def get_current_devices():
 #     try:
-#         return [(dev.idVendor, dev.idProduct) for dev in usb.core.find(find_all=True) if dev is not None]
+#         devices = []
+#         for dev in usb.core.find(find_all=True):
+#             if dev is not None:
+#                 manufacturer = get_usb_string(dev, dev.iManufacturer)
+#                 product = get_usb_string(dev, dev.iProduct)
+#                 serial = get_usb_string(dev, dev.iSerialNumber)
+#                 devices.append((dev.idVendor, dev.idProduct, manufacturer, product, serial))
+#         return devices
 #     except Exception as e:
 #         print(f"Ошибка получения текущих устройств: {e}")
 #         return []
 #
-# def check_device(idVendor, idProduct):
-#     url = f'{API_URL}/check_device?idVendor={hex(idVendor)}&idProduct={hex(idProduct)}&username={os.getlogin()}&hostname={socket.gethostname()}&ipaddress={get_local_ip()}'
+#
+# def check_device(idVendor, idProduct, iManufacturer, iProduct, iSerialNumber):
+#     url = f'{API_URL}/check_device?idVendor={hex(idVendor)}&idProduct={hex(idProduct)}&username={os.getlogin()}&hostname={socket.gethostname()}&ipaddress={get_local_ip()}&iManufacturer={iManufacturer}&iProduct={iProduct}&iSerialNumber={iSerialNumber}'
 #     print('Запрос отправлен')
 #     try:
 #         response = requests.get(url=url, timeout=5)
@@ -55,6 +84,7 @@
 #     except Exception as e:
 #         print(f'Ошибка проверки устройства: {e}')
 #     return False
+#
 #
 # def get_local_ip():
 #     try:
@@ -66,7 +96,8 @@
 #     except Exception:
 #         return "127.0.0.1"
 #
-# def send_warning_to_admin(idProduct, idVendor):
+#
+# def send_warning_to_admin(idProduct, idVendor, iManufacturer, iProduct, iSerialNumber):
 #     username = os.getlogin()
 #     hostname = socket.gethostname()
 #     time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -78,8 +109,11 @@
 #         "hostname": hostname,
 #         "time": time_str,
 #         "local_ip": ip_address,
-#         'idProduct': hex(idProduct),
+#         "idProduct": hex(idProduct),
 #         "idVendor": hex(idVendor),
+#         "iManufacturer": iManufacturer,
+#         "iProduct": iProduct,
+#         "iSerialNumber": iSerialNumber
 #     }
 #
 #     try:
@@ -87,14 +121,18 @@
 #     except Exception as e:
 #         print(f'Ошибка отправки предупреждения: {e}')
 #
+#
 # class USBMonitorGUI(QMainWindow):
 #     def __init__(self):
 #         super().__init__()
 #         self.setWindowTitle(f"USB Device Monitor - {COMPANY_NAME}")
 #         self.setGeometry(100, 100, 600, 400)
 #         self.setWindowIcon(QIcon("icon.png"))
+#
+#         self.init_ui()
+#
 #         self.initial_devices = self.get_current_usb_devices()
-#         self.verified_devices = set(self.initial_devices)
+#         self.verified_devices = set((dev[0], dev[1]) for dev in self.initial_devices)
 #         self.suspicious_devices = set()
 #
 #         self.tray_icon = QSystemTrayIcon(self)
@@ -109,12 +147,6 @@
 #         self.tray_icon.setContextMenu(tray_menu)
 #         self.tray_icon.show()
 #
-#         self.central_widget = QWidget()
-#         self.setCentralWidget(self.central_widget)
-#
-#         self.layout = QVBoxLayout()
-#         self.central_widget.setLayout(self.layout)
-#
 #         self.known_devices = load_known_devices()
 #         self.first_run = len(self.known_devices) == 0
 #
@@ -127,96 +159,106 @@
 #         self.devices = list(self.known_devices)
 #         self.seen_devices = []
 #
-#         self.init_ui()
-#
 #         self.timer = QTimer()
 #         self.timer.timeout.connect(self.check_usb_devices)
 #         self.timer.start(1000)
 #
-#     def get_current_usb_devices(self):
-#         try:
-#             return [(dev.idVendor, dev.idProduct)
-#                     for dev in usb.core.find(find_all=True)
-#                     if dev is not None]
-#         except:
-#             return []
+#     def init_ui(self):
+#         self.central_widget = QWidget()
+#         self.setCentralWidget(self.central_widget)
 #
-#     def check_usb_devices(self):
-#         current_devices = set(self.get_current_usb_devices())
+#         self.layout = QVBoxLayout()
+#         self.central_widget.setLayout(self.layout)
 #
-#         new_devices = current_devices - self.verified_devices - self.suspicious_devices
+#         self.log_area = QTextEdit()
+#         self.log_area.setReadOnly(True)
+#         self.log_area.setFont(QFont("Courier", 10))
+#         self.layout.addWidget(self.log_area)
 #
-#         for vid, pid in new_devices:
-#             print(f"Проверяем новое устройство: VID={hex(vid)}, PID={hex(pid)}")
+#         buttons_layout = QHBoxLayout()
 #
-#             if self.verify_device(vid, pid):
-#                 self.verified_devices.add((vid, pid))
-#             else:
-#                 self.suspicious_devices.add((vid, pid))
+#         self.clear_button = QPushButton("Очистить лог")
+#         self.clear_button.clicked.connect(self.clear_log)
+#         buttons_layout.addWidget(self.clear_button)
+#
+#         self.exit_button = QPushButton("Выход")
+#         self.exit_button.clicked.connect(self.close)
+#         buttons_layout.addWidget(self.exit_button)
+#
+#         self.layout.addLayout(buttons_layout)
 #
 #     def log(self, message):
-#         """Добавляет сообщение в лог"""
 #         self.log_area.append(message)
 #         print(message)
 #
-#     # ... остальные методы класса без изменений ...
+#     def clear_log(self):
+#         self.log_area.clear()
+#
+#     def show_normal(self):
+#         self.showNormal()
+#         self.activateWindow()
+#
+#     def get_current_usb_devices(self):
+#         try:
+#             devices = []
+#             for dev in usb.core.find(find_all=True):
+#                 if dev is not None:
+#                     manufacturer = get_usb_string(dev, dev.iManufacturer)
+#                     product = get_usb_string(dev, dev.iProduct)
+#                     serial = get_usb_string(dev, dev.iSerialNumber)
+#                     devices.append((dev.idVendor, dev.idProduct, manufacturer, product, serial))
+#             return devices
+#         except:
+#             return []
+#
+#     def verify_device(self, vid, pid, manufacturer, product, serial):
+#         try:
+#             return check_device(vid, pid, manufacturer, product, serial)
+#         except Exception as e:
+#             self.log(f"Ошибка проверки устройства: {e}")
+#             return False
 #
 #     def check_usb_devices(self):
-#         try:
-#             current_devices = list(usb.core.find(find_all=True))
-#             current_ids = [(dev.idVendor, dev.idProduct) for dev in current_devices if dev is not None]
+#         current_devices = self.get_current_usb_devices()
+#         current_ids = set((dev[0], dev[1]) for dev in current_devices)
 #
-#             for device in current_devices:
-#                 if device is None:
-#                     continue
+#         new_devices = [dev for dev in current_devices
+#                        if (dev[0], dev[1]) not in self.verified_devices
+#                        and (dev[0], dev[1]) not in self.suspicious_devices]
 #
-#                 vid_pid = (device.idVendor, device.idProduct)
+#         for vid, pid, manufacturer, product, serial in new_devices:
+#             log_msg = f"Проверяем устройство: VID={hex(vid)}, PID={hex(pid)}"
+#             if manufacturer != 0:
+#                 log_msg += f", Производитель: {manufacturer}"
+#             if product != 0:
+#                 log_msg += f", Устройство: {product}"
+#             if serial != 0:
+#                 log_msg += f", Серийный: {serial}"
+#             self.log(log_msg)
 #
-#                 # Пропускаем известные устройства
-#                 if vid_pid in self.devices:
-#                     continue
+#             if self.verify_device(vid, pid, manufacturer, product, serial):
+#                 self.verified_devices.add((vid, pid))
+#                 self.log(f"Устройство подтверждено: {product if product != 0 else 'Unknown'}")
+#             else:
+#                 self.suspicious_devices.add((vid, pid))
+#                 self.log(f"ВНИМАНИЕ: Неавторизованное устройство!")
+#                 send_warning_to_admin(pid, vid, manufacturer, product, serial)
 #
-#                 if vid_pid not in (self.devices + self.seen_devices):
-#                     self.log(f"Обнаружено новое устройство: VID={hex(device.idVendor)}, PID={hex(device.idProduct)}")
+#     def closeEvent(self, event):
+#         if not ALLOW_EXIT:
+#             self.hide()
+#             event.ignore()
+#         else:
+#             self.tray_icon.hide()
+#             event.accept()
 #
-#                     try:
-#                         dev = usb.core.find(idVendor=device.idVendor, idProduct=device.idProduct)
-#                         if dev is not None:
-#                             if dev.is_kernel_driver_active(0):
-#                                 dev.detach_kernel_driver(0)
-#                                 self.log("Драйвер устройства отключен для проверки")
-#
-#                             is_legit = check_device(device.idVendor, device.idProduct)
-#
-#                             if is_legit:
-#                                 self.log("Устройство подтверждено как разрешённое")
-#                                 try:
-#                                     dev.attach_kernel_driver(0)
-#                                 except:
-#                                     self.log("Не удалось переподключить драйвер")
-#                                 self.devices.append(vid_pid)
-#                                 # Обновляем список известных устройств
-#                                 if vid_pid not in self.known_devices:
-#                                     self.known_devices.append(vid_pid)
-#                                     save_known_devices(self.known_devices)
-#                             else:
-#                                 self.log("ВНИМАНИЕ: Обнаружено неавторизованное устройство!")
-#                                 send_warning_to_admin(device.idProduct, device.idVendor)
-#                                 self.seen_devices.append(vid_pid)
-#                     except Exception as e:
-#                         self.log(f"Ошибка обработки устройства: {str(e)}")
-#
-#         except Exception as e:
-#             self.log(f"Ошибка при сканировании USB устройств: {str(e)}")
 #
 # if __name__ == "__main__":
 #     app = QApplication(sys.argv)
 #     app.setQuitOnLastWindowClosed(False)
 #
 #     try:
-#         # Проверка доступности USB
 #         list(usb.core.find(find_all=True))
-#
 #         window = USBMonitorGUI()
 #         window.show()
 #         sys.exit(app.exec_())
@@ -229,6 +271,7 @@
 #         error_msg = QLabel(f"Ошибка запуска: {str(e)}")
 #         error_msg.show()
 #         app.exec_()
+
 import sys
 import os
 import socket
@@ -246,7 +289,7 @@ import requests
 import time
 
 # Константы
-API_URL = "http://localhost:5000/api"
+API_URL = "http://localhost:5000/api"  # Базовый URL API
 COMPANY_NAME = "Your Company"
 ALLOW_EXIT = False
 CONFIG_DIR = Path.home() / ".usb_monitor"
@@ -304,20 +347,30 @@ def get_current_devices():
         return []
 
 
-def check_device(idVendor, idProduct, iManufacturer, iProduct, iSerialNumber):
-    url = f'{API_URL}/check_device?idVendor={hex(idVendor)}&idProduct={hex(idProduct)}&username={os.getlogin()}&hostname={socket.gethostname()}&ipaddress={get_local_ip()}&iManufacturer={iManufacturer}&iProduct={iProduct}&iSerialNumber={iSerialNumber}'
-    print('Запрос отправлен')
+def check_device(vid, pid, manufacturer, product, serial_number):
+    """Проверяет устройство через API"""
+    data = {
+        'vid': str(hex(vid)).replace("0x", ""),
+        'pid': str(hex(pid)).replace('0x', ''),
+        'serial_number': str(serial_number) if serial_number != 0 else '',
+        'device_name': str(product) if product != 0 else 'Unknown',
+        'computer_name': socket.gethostname(),
+        'ip_address': get_local_ip(),
+        'user': os.getlogin()
+    }
+
     try:
-        response = requests.get(url=url, timeout=5)
-        if response.status_code == 200 and response.json().get('legit', False):
-            print('Устройство проверено')
-            return True
+        response = requests.post(f'{API_URL}/check_device', json=data, timeout=5)
+        if response.status_code == 200:
+            result = response.json()
+            return result.get('allowed', False)
     except Exception as e:
         print(f'Ошибка проверки устройства: {e}')
     return False
 
 
 def get_local_ip():
+    """Получает локальный IP адрес"""
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -328,29 +381,22 @@ def get_local_ip():
         return "127.0.0.1"
 
 
-def send_warning_to_admin(idProduct, idVendor, iManufacturer, iProduct, iSerialNumber):
-    username = os.getlogin()
-    hostname = socket.gethostname()
-    time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ip_address = get_local_ip()
-    url = f'{API_URL}/warning'
-
+def register_client():
+    """Регистрирует клиента в системе"""
     data = {
-        "username": username,
-        "hostname": hostname,
-        "time": time_str,
-        "local_ip": ip_address,
-        "idProduct": hex(idProduct),
-        "idVendor": hex(idVendor),
-        "iManufacturer": iManufacturer,
-        "iProduct": iProduct,
-        "iSerialNumber": iSerialNumber
+        'computer_name': socket.gethostname(),
+        'ip_address': get_local_ip(),
+        'user': os.getlogin(),
+        'os': os.name,
+        'version': '1.0.0'
     }
 
     try:
-        requests.post(url, data=data, timeout=5)
+        response = requests.post(f'{API_URL}/clients', json=data, timeout=5)
+        return response.status_code == 200 or response.status_code == 201
     except Exception as e:
-        print(f'Ошибка отправки предупреждения: {e}')
+        print(f'Ошибка регистрации клиента: {e}')
+        return False
 
 
 class USBMonitorGUI(QMainWindow):
@@ -387,8 +433,11 @@ class USBMonitorGUI(QMainWindow):
             self.known_devices = current_devices
             self.log("Первоначальная инициализация: сохранены подключенные устройства")
 
-        self.devices = list(self.known_devices)
-        self.seen_devices = []
+        # Регистрация клиента при запуске
+        if register_client():
+            self.log("Клиент успешно зарегистрирован")
+        else:
+            self.log("Ошибка регистрации клиента")
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.check_usb_devices)
@@ -443,11 +492,49 @@ class USBMonitorGUI(QMainWindow):
             return []
 
     def verify_device(self, vid, pid, manufacturer, product, serial):
+        """Проверяет устройство через API и блокирует если получен статус 400"""
         try:
-            return check_device(vid, pid, manufacturer, product, serial)
+            data = {
+                'vid': str(hex(vid)).replace("0x", ""),
+                'pid': str(hex(pid)).replace('0x', ''),
+                'serial_number': str(serial) if serial != 0 else '',
+                'device_name': str(product) if product != 0 else 'Unknown',
+                'computer_name': socket.gethostname(),
+                'ip_address': get_local_ip(),
+                'user': os.getlogin()
+            }
+
+            response = requests.post(f'{API_URL}/check_device', json=data, timeout=5)
+
+            if response.status_code == 200:
+                result = response.json()
+                return result.get('allowed', False)
+            elif response.status_code == 400:
+                # Блокируем устройство
+                self.block_device(vid, pid)
+                return False
+            else:
+                return False
         except Exception as e:
-            self.log(f"Ошибка проверки устройства: {e}")
+            print(f'Ошибка проверки устройства: {e}')
             return False
+
+    def block_device(self, vid, pid):
+        """Блокирует USB устройство"""
+        try:
+            dev = usb.core.find(idVendor=vid, idProduct=pid)
+            if dev is not None:
+                try:
+                    if dev.is_kernel_driver_active(0):
+                        dev.detach_kernel_driver(0)
+                    if dev.is_kernel_driver_active(1):
+                        dev.detach_kernel_driver(1)
+                    usb.util.dispose_resources(dev)
+                    self.log(f"Устройство VID={hex(vid)}, PID={hex(pid)} было заблокировано")
+                except usb.core.USBError as e:
+                    self.log(f"Ошибка блокировки устройства: {str(e)}")
+        except Exception as e:
+            self.log(f"Ошибка поиска устройства для блокировки: {str(e)}")
 
     def check_usb_devices(self):
         current_devices = self.get_current_usb_devices()
@@ -458,7 +545,7 @@ class USBMonitorGUI(QMainWindow):
                        and (dev[0], dev[1]) not in self.suspicious_devices]
 
         for vid, pid, manufacturer, product, serial in new_devices:
-            log_msg = f"Проверяем устройство: VID={hex(vid)}, PID={hex(pid)}"
+            log_msg = f"Обнаружено новое устройство: VID={hex(vid)}, PID={hex(pid)}"
             if manufacturer != 0:
                 log_msg += f", Производитель: {manufacturer}"
             if product != 0:
@@ -469,12 +556,26 @@ class USBMonitorGUI(QMainWindow):
 
             if self.verify_device(vid, pid, manufacturer, product, serial):
                 self.verified_devices.add((vid, pid))
-                self.log(f"Устройство подтверждено: {product if product != 0 else 'Unknown'}")
+                self.log(f"Устройство разрешено: {product if product != 0 else 'Unknown'}")
             else:
                 self.suspicious_devices.add((vid, pid))
                 self.log(f"ВНИМАНИЕ: Неавторизованное устройство!")
-                send_warning_to_admin(pid, vid, manufacturer, product, serial)
 
+                # Логируем событие на сервере
+                log_data = {
+                    'device_name': str(product) if product != 0 else 'Unknown',
+                    'vid': hex(vid),
+                    'pid': hex(pid),
+                    'serial_number': str(serial) if serial != 0 else '',
+                    'status': 'blocked',
+                    'computer_name': socket.gethostname(),
+                    'ip_address': get_local_ip(),
+                    'user': os.getlogin()
+                }
+                try:
+                    requests.post(f'{API_URL}/logs', json=log_data, timeout=5)
+                except Exception as e:
+                    print(f'Ошибка отправки лога: {e}')
     def closeEvent(self, event):
         if not ALLOW_EXIT:
             self.hide()
