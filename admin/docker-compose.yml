@@ -1,0 +1,45 @@
+version: "3.0"
+
+networks:
+  dev:
+
+services:
+  test-postgres:
+    restart: unless-stopped
+    image: "postgres:16.6-alpine"
+    container_name: test-postgres
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_DB: test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+      PGPORT: 5432
+    networks:
+      - dev
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  usb-control-system:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: usb-control-system
+    ports:
+      - "3000:3000"  # Порт для фронтенда
+      - "5000:5000"  # Порт для бэкенда
+    environment:
+      - NODE_ENV=production
+      - POSTGRES_DB=test
+      - POSTGRES_USER=test
+      - POSTGRES_PASSWORD=test
+      - POSTGRES_HOST=test-postgres
+      - POSTGRES_PORT=5432
+      - SECRET_KEY=supersecretkey
+    networks:
+      - dev
+    depends_on:
+      - test-postgres
+
+volumes:
+  postgres-data:

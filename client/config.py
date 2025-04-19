@@ -1,2 +1,2 @@
 API_URL = 'http://127.0.0.1:5000/api'
-NETWORK_INTERFACE = 'wlan0'
+COMPANY_NAME = "Your Company"
